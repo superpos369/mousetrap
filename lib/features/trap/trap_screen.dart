@@ -18,9 +18,10 @@ class TrapScreen extends StatefulWidget {
 
 class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
   late final CheeseRotationController _rotCtrl;
-  late final AnimationController _snapCtrl;   // 0 → 1, drives snap animation
-  late final AnimationController _shakeCtrl;  // screen shake on snap
-  late final AnimationController _cheeseAppear; // cheese fade/scale in
+  late final AnimationController _snapCtrl;
+  late final AnimationController _shakeCtrl;
+  late final AnimationController _cheeseAppear;
+  late final AnimationController _glowPulse;
 
   BannerAd? _bannerAd;
   bool _adLoaded = false;
@@ -32,19 +33,24 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
 
     _snapCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 280),
     );
 
     _shakeCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 380),
     );
 
     _cheeseAppear = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 480),
       value: 1.0,
     );
+
+    _glowPulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2800),
+    )..repeat(reverse: true);
   }
 
   void _loadAd() {
@@ -68,15 +74,13 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
     if (provider.isIdle) {
       _rotCtrl.pause();
       await provider.trigger();
-      await _snapCtrl.forward(from: 0);
+      _snapCtrl.forward(from: 0);
       _shakeCtrl.forward(from: 0);
       _loadAd();
     } else if (provider.isSnapped) {
-      // Cheese disappears
       await _cheeseAppear.reverse();
       await provider.reset();
       _snapCtrl.value = 0;
-      // Cheese reappears
       await _cheeseAppear.forward();
       _rotCtrl.resume();
     }
@@ -88,6 +92,7 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
     _snapCtrl.dispose();
     _shakeCtrl.dispose();
     _cheeseAppear.dispose();
+    _glowPulse.dispose();
     _bannerAd?.dispose();
     super.dispose();
   }
@@ -101,37 +106,32 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
         onTapDown: (_) => _onTap(),
         child: Stack(
           children: [
-            // Radial glow behind cheese
+            // Subtle radial bg gradient
             Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _cheeseAppear,
-                builder: (_, __) => Center(
-                  child: Container(
-                    width: 340,
-                    height: 340,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.chedddarYellow
-                              .withValues(alpha: 0.15 * _cheeseAppear.value),
-                          blurRadius: 120,
-                          spreadRadius: 40,
-                        ),
-                      ],
-                    ),
+              child: DecoratedBox(
+                decoration: const BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment(0, -0.1),
+                    radius: 0.85,
+                    colors: [
+                      Color(0xFF1A1000),
+                      Color(0xFF000000),
+                    ],
                   ),
                 ),
               ),
             ),
 
-            // Main content — cheese OR trap
+            // Animated glow
+            _buildGlow(),
+
+            // Main content
             _buildContent(),
 
-            // Tap hint (shown only in idle)
+            // Hint
             _buildHint(),
 
-            // AdMob banner at bottom
+            // Ad
             if (_adLoaded && _bannerAd != null)
               Positioned(
                 bottom: 0,
@@ -148,26 +148,51 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
     );
   }
 
+  Widget _buildGlow() {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_glowPulse, _cheeseAppear]),
+      builder: (_, __) {
+        final pulse = 0.10 + _glowPulse.value * 0.07;
+        return Positioned.fill(
+          child: Center(
+            child: Container(
+              width: 360,
+              height: 360,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.chedddarYellow
+                        .withValues(alpha: pulse * _cheeseAppear.value),
+                    blurRadius: 130,
+                    spreadRadius: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildContent() {
     return AnimatedBuilder(
-      animation: Listenable.merge([_snapCtrl, _cheeseAppear, _rotCtrl.controller]),
+      animation: Listenable.merge([_snapCtrl, _cheeseAppear, _shakeCtrl]),
       builder: (context, _) {
         final provider = context.watch<TrapProvider>();
         final isSnappedOrSnapping =
             provider.state == TrapState.snapping ||
             provider.state == TrapState.snapped;
 
-        // Screen shake offset
         final shakeX = _shakeCtrl.isAnimating
-            ? _shake(_shakeCtrl.value) * 12
+            ? _shake(_shakeCtrl.value) * 14
             : 0.0;
 
         return Transform.translate(
           offset: Offset(shakeX, 0),
           child: Center(
-            child: isSnappedOrSnapping
-                ? _buildTrap()
-                : _buildCheese(),
+            child: isSnappedOrSnapping ? _buildTrap() : _buildCheese(),
           ),
         );
       },
@@ -177,59 +202,55 @@ class _TrapScreenState extends State<TrapScreen> with TickerProviderStateMixin {
   Widget _buildCheese() {
     return AnimatedBuilder(
       animation: Listenable.merge([_rotCtrl.controller, _cheeseAppear]),
-      builder: (_, __) => CheeseWidget(
-        rotationY: _rotCtrl.radians,
+      builder: (_, __) => Transform.scale(
         scale: _cheeseAppear.value,
-      )
-          .animate(target: 1)
-          .scale(
-            begin: const Offset(0.92, 0.92),
-            end: const Offset(1.0, 1.0),
-            duration: 600.ms,
-            curve: Curves.elasticOut,
-          ),
+        child: Opacity(
+          opacity: _cheeseAppear.value.clamp(0.0, 1.0),
+          child: CheeseWidget(rotationY: _rotCtrl.radians),
+        ),
+      ),
     );
   }
 
   Widget _buildTrap() {
     return AnimatedBuilder(
       animation: _snapCtrl,
-      builder: (_, __) => TrapAnimation(snapProgress: _snapCtrl.value)
-          .animate(target: _snapCtrl.isCompleted ? 1 : 0)
-          .shake(hz: 8, duration: 300.ms),
+      builder: (_, __) => TrapAnimation(snapProgress: _snapCtrl.value),
     );
   }
 
   Widget _buildHint() {
     return Consumer<TrapProvider>(
       builder: (_, provider, __) {
-        final text = provider.isSnapped ? 'Tippen zum Zurücksetzen' : 'Berühren';
+        final text = provider.isSnapped
+            ? 'TAP TO RESET'
+            : 'TAP TO TRIGGER';
+
         return Positioned(
-          bottom: (_adLoaded ? 70 : 32),
+          bottom: (_adLoaded ? 72 : 36),
           left: 0,
           right: 0,
           child: Text(
             text,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.chedddarYellow.withValues(alpha: 0.45),
-              fontSize: 13,
-              letterSpacing: 2,
-              fontWeight: FontWeight.w300,
+            style: const TextStyle(
+              color: Color(0x55F4A800),
+              fontSize: 11,
+              letterSpacing: 4,
+              fontWeight: FontWeight.w500,
             ),
           )
               .animate(onPlay: (c) => c.repeat(reverse: true))
-              .fadeIn(duration: 800.ms)
+              .fadeIn(duration: 900.ms)
               .then()
-              .fadeOut(duration: 800.ms),
+              .fadeOut(duration: 900.ms),
         );
       },
     );
   }
 
-  /// Simple triangle-wave shake
   double _shake(double t) {
-    const freq = 6.0;
+    const freq = 7.0;
     final v = (t * freq) % 1.0;
     return v < 0.5 ? v * 4 - 1 : (1 - v) * 4 - 1;
   }

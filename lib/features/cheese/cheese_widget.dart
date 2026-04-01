@@ -2,11 +2,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
 
-/// Paints a stylized 3D-looking wedge of cheese via CustomPainter.
-/// No external model loader needed — pure Canvas drawing.
 class CheeseWidget extends StatelessWidget {
-  final double rotationY; // radians, drives the pseudo-3D perspective shift
-  final double scale;     // 0.0 → 1.0, used for appear/disappear
+  final double rotationY;
+  final double scale;
 
   const CheeseWidget({
     super.key,
@@ -19,7 +17,7 @@ class CheeseWidget extends StatelessWidget {
     return Transform.scale(
       scale: scale,
       child: CustomPaint(
-        size: const Size(320, 280),
+        size: const Size(340, 300),
         painter: _CheesePainter(rotationY: rotationY),
       ),
     );
@@ -34,98 +32,189 @@ class _CheesePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    final cy = size.height / 2;
+    final cy = size.height * 0.54;
+    final p = math.sin(rotationY) * 0.15; // perspective shift
 
-    // Perspective factor — makes the cheese appear to slightly rotate
-    final perspective = math.sin(rotationY) * 0.12;
+    // ── SHADOW UNDER CHEESE ───────────────────────────────────────
+    final shadowPaint = Paint()
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 32)
+      ..color = const Color(0xCC000000);
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(cx + p * 30, cy + 108), width: 280, height: 28),
+      shadowPaint,
+    );
+
+    // ── GEOMETRY ──────────────────────────────────────────────────
+    // Block cheese: front face, top face, right side face
+
+    final tl = Offset(cx - 148 + p * 10, cy - 88); // top-left
+    final tr = Offset(cx + 148 + p * 60, cy - 88); // top-right
+    final bl = Offset(cx - 148 + p * 10, cy + 108); // bottom-left
+    final br = Offset(cx + 148 + p * 60, cy + 108); // bottom-right
+
+    // Depth offset for top/right faces
+    const dz = 44.0;
+    final tlb = Offset(tl.dx - dz * 0.6, tl.dy - dz); // back-top-left
+    final trb = Offset(tr.dx - dz * 0.6, tr.dy - dz); // back-top-right
+
+    // ── RIGHT SIDE FACE ───────────────────────────────────────────
+    final rightPath = Path()
+      ..moveTo(tr.dx, tr.dy)
+      ..lineTo(trb.dx, trb.dy)
+      ..lineTo(trb.dx, trb.dy + (br.dy - tr.dy))
+      ..lineTo(br.dx, br.dy)
+      ..close();
+
+    canvas.drawPath(
+      rightPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            const Color(0xFFB87000),
+            const Color(0xFF8A5200),
+          ],
+        ).createShader(rightPath.getBounds()),
+    );
 
     // ── TOP FACE ──────────────────────────────────────────────────
-    final topPaint = Paint()
-      ..shader = const RadialGradient(
-        center: Alignment(-0.3, -0.3),
-        radius: 0.9,
-        colors: [
-          AppColors.chedddarLight,
-          AppColors.chedddarYellow,
-          AppColors.chedddarDark,
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
     final topPath = Path()
-      ..moveTo(cx + perspective * 60, cy - 110)
-      ..lineTo(cx + 140 + perspective * 40, cy - 10)
-      ..lineTo(cx - 140 + perspective * 20, cy - 10)
+      ..moveTo(tl.dx, tl.dy)
+      ..lineTo(tr.dx, tr.dy)
+      ..lineTo(trb.dx, trb.dy)
+      ..lineTo(tlb.dx, tlb.dy)
       ..close();
 
-    canvas.drawPath(topPath, topPaint);
+    canvas.drawPath(
+      topPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            const Color(0xFFE89A00),
+            const Color(0xFFFFC93C),
+            const Color(0xFFFFE08A),
+          ],
+          stops: const [0.0, 0.5, 1.0],
+        ).createShader(topPath.getBounds()),
+    );
+
+    // Top face rim highlight
+    canvas.drawPath(
+      topPath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..color = const Color(0x33FFFFFF),
+    );
 
     // ── FRONT FACE ────────────────────────────────────────────────
-    final frontPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          AppColors.chedddarYellow,
-          AppColors.chedddarDark,
-        ],
-      ).createShader(Rect.fromLTWH(0, cy - 10, size.width, 110));
-
     final frontPath = Path()
-      ..moveTo(cx + 140 + perspective * 40, cy - 10)
-      ..lineTo(cx + 140 + perspective * 40, cy + 100)
-      ..lineTo(cx - 140 + perspective * 20, cy + 100)
-      ..lineTo(cx - 140 + perspective * 20, cy - 10)
+      ..moveTo(tl.dx, tl.dy)
+      ..lineTo(tr.dx, tr.dy)
+      ..lineTo(br.dx, br.dy)
+      ..lineTo(bl.dx, bl.dy)
       ..close();
 
-    canvas.drawPath(frontPath, frontPaint);
-
-    // ── RIGHT FACE (depth) ────────────────────────────────────────
-    final rightPaint = Paint()
-      ..color = AppColors.chedddarDark.withValues(alpha: 0.85);
-
-    final rightPath = Path()
-      ..moveTo(cx + perspective * 60, cy - 110)
-      ..lineTo(cx + 140 + perspective * 40, cy - 10)
-      ..lineTo(cx + 140 + perspective * 40, cy + 100)
-      ..lineTo(cx + perspective * 60, cy - 10)  // back-right bottom
-      ..close();
-
-    canvas.drawPath(rightPath, rightPaint);
+    canvas.drawPath(
+      frontPath,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFFF4A800),
+            const Color(0xFFD98A00),
+            const Color(0xFFC07800),
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(frontPath.getBounds()),
+    );
 
     // ── HOLES ─────────────────────────────────────────────────────
-    final holePaint = Paint()..color = AppColors.holeColor;
+    _drawHole(canvas, Offset(cx - 58 + p * 20, cy - 18), 24, 17);
+    _drawHole(canvas, Offset(cx + 38 + p * 40, cy + 32), 20, 14);
+    _drawHole(canvas, Offset(cx - 90 + p * 14, cy + 52), 15, 11);
+    _drawHole(canvas, Offset(cx + 80 + p * 48, cy - 30), 13, 9);
+    _drawHole(canvas, Offset(cx - 10 + p * 28, cy + 68), 18, 13);
 
-    final holes = [
-      Offset(cx - 40 + perspective * 30, cy + 30),
-      Offset(cx + 50 + perspective * 35, cy + 55),
-      Offset(cx - 80 + perspective * 25, cy + 65),
-      Offset(cx + 10 + perspective * 28, cy + 15),
-    ];
-    final holeRadii = [18.0, 14.0, 10.0, 12.0];
+    // ── LIGHT REFLECTION (top) ────────────────────────────────────
+    final glossPath = Path()
+      ..moveTo(tl.dx + 20, tl.dy + 4)
+      ..lineTo(tr.dx - 20, tr.dy + 4)
+      ..lineTo(tr.dx - 20, tr.dy + 14)
+      ..lineTo(tl.dx + 20, tl.dy + 14)
+      ..close();
 
-    for (int i = 0; i < holes.length; i++) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: holes[i],
-          width: holeRadii[i] * 2,
-          height: holeRadii[i] * 1.3,
-        ),
-        holePaint,
-      );
-    }
+    canvas.drawPath(
+      glossPath,
+      Paint()
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+        ..color = const Color(0x44FFFFFF),
+    );
 
-    // ── HIGHLIGHT GLOSS ───────────────────────────────────────────
-    final glossPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.18)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+    // ── FRONT FACE GLOSS (left edge bright) ───────────────────────
+    final edgeGlow = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          const Color(0x30FFFFFF),
+          const Color(0x00FFFFFF),
+        ],
+      ).createShader(Rect.fromLTWH(tl.dx, tl.dy, 80, bl.dy - tl.dy))
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+    canvas.drawPath(frontPath, edgeGlow);
 
+    // ── OUTER GLOW ────────────────────────────────────────────────
+    final glowPaint = Paint()
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28)
+      ..color = AppColors.chedddarYellow.withValues(alpha: 0.22);
+    canvas.drawRect(
+      Rect.fromLTRB(tl.dx - 12, tlb.dy - 12, br.dx + 12, br.dy + 12),
+      glowPaint,
+    );
+  }
+
+  void _drawHole(Canvas canvas, Offset center, double rx, double ry) {
+    // Outer dark ring (depth)
+    canvas.drawOval(
+      Rect.fromCenter(center: center, width: rx * 2, height: ry * 2),
+      Paint()
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4)
+        ..color = const Color(0xCC3D1F00),
+    );
+
+    // Inner hole
+    canvas.drawOval(
+      Rect.fromCenter(center: center, width: rx * 2 - 4, height: ry * 2 - 3),
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.4),
+          radius: 1.0,
+          colors: const [
+            Color(0xFF5C2D00),
+            Color(0xFF2A1000),
+          ],
+        ).createShader(Rect.fromCenter(
+          center: center,
+          width: rx * 2,
+          height: ry * 2,
+        )),
+    );
+
+    // Highlight glint top-left
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(cx - 20 + perspective * 20, cy - 60),
-        width: 80,
-        height: 30,
+        center: Offset(center.dx - rx * 0.28, center.dy - ry * 0.3),
+        width: rx * 0.5,
+        height: ry * 0.35,
       ),
-      glossPaint,
+      Paint()
+        ..color = const Color(0x22FFFFFF)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
     );
   }
 
